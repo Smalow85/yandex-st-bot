@@ -1,15 +1,17 @@
+import json
+import requests
 from telegram.ext import Updater, MessageHandler, Filters
 from pytube import YouTube
-
-import logging
-logging.basicConfig(level=logging.DEBUG, filename='logs.txt')
-
-from yandex import sendToScreen
-import config
 
 
 last_url = ""
 authorised_users = []
+login = "smalow"
+password = "#Zebra2022"
+telegram_bot_token = "1098449627:AAHaFcYmW2WoBdgXE1IJamhEuOigqN8G6ZU"
+bot_password = "123"
+
+proxy = None
 
 def getVideoUrl(url):
 
@@ -36,34 +38,76 @@ def extractUrl(message):
     return message.text  # TODO: getting url by entities info
 
 
+def sendToScreen(video_url):
+    # Auth and getting Session_id
+
+    auth_data = {
+        'login': login,
+        'passwd': password
+    }
+
+    s = requests.Session()
+    print(s)
+    s.get("https://passport.yandex.ru/")
+    s.post("https://passport.yandex.ru/passport?mode=auth&retpath=https://yandex.ru", data=auth_data)
+
+    Session_id = s.cookies["Session_id"]
+
+    # Getting x-csrf-token
+    token = s.get('https://frontend.vh.yandex.ru/csrf_token').text
+    print(token)
+
+    # Detting devices info TODO: device selection here
+    devices_online_stats = s.get("https://quasar.yandex.ru/devices_online_stats").text
+    devices = json.loads(devices_online_stats)["items"]
+
+    # Preparing request
+    headers = {
+        "x-csrf-token": token,
+    }
+
+    data = {
+        "msg": {
+            "provider_item_id": video_url
+        },
+        "device": devices[0]["id"]
+    }
+
+    if "youtu" in video_url:
+        data["msg"]["player_id"] = "youtube"
+        data["msg"]["type"] = "video"
+        data["msg"]["provider_name"] = "Youtube"
+
+    # Sending command with video to device
+    res = s.post("https://yandex.ru/video/station", data=json.dumps(data), headers=headers)
+    print(res)
+
+    return res.text
+
+
 def message_recieved(bot, update):
 
-    user_id = update.message.chat_id
+    chat_id = bot.message.chat_id
     # TODO: get yandex configs based on user_id
 
-    print(update.message)
+    print(chat_id)
 
-    if update.message.text == config.bot_password:
-        authorised_users.append(user_id)
-        bot.send_message(chat_id=update.message.chat_id, text="Успешная авторизация!")
-        print(f"Authorised: {user_id}")
+    if bot.message.text == bot_password:
+        authorised_users.append(chat_id)
+        print(f"Authorised: {chat_id}")
         return
 
-    if not user_id in authorised_users:
-        bot.send_message(chat_id=update.message.chat_id, text="Это бот Сергея. Пожалуйста, сделайте своего бота.")
+    if not chat_id in authorised_users:
         print("Unauthorised request blocked!")
         return
 
-    url = extractUrl(update.message)
+    url = extractUrl(bot.message)
     video_url = getVideoUrl(url)
     result = sendToScreen(video_url)
 
     print(result)
 
-    bot.send_message(chat_id=update.message.chat_id, text=result + video_url)
-
-
-updater = Updater(token=config.telegram_bot_token, request_kwargs=config.proxy)
+updater = Updater(token=telegram_bot_token, request_kwargs=proxy)
 
 message_handler = MessageHandler(Filters.all, message_recieved)
 updater.dispatcher.add_handler(message_handler)
